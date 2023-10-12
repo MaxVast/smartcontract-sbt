@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+// Import dependencies
 import "@openzeppelin/contracts/utils/Strings.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
@@ -10,7 +11,7 @@ import "./IERC5192.sol";
 // @title A contract for mint an SBT
 // @author MaxVast
 // @dev Implementation Openzeppelin Ownable, Strings, ERC721, ERC721Enumerable and interface IERC5192
-contract SoulboundToken is ERC721, ERC721Enumerable, Ownable {
+contract SoulboundToken is ERC721, ERC721Enumerable, Ownable, IERC5192 {
     // Mapping from address to claim token
     mapping(address => bool) public claimedTokens;
     // Mapping from Token ID to address
@@ -25,16 +26,6 @@ contract SoulboundToken is ERC721, ERC721Enumerable, Ownable {
     /// @dev If a token is claimed, this event should be emitted.
     /// @param tokenId The identifier for a token.
     event TokenClaimed(address indexed user, uint256 tokenId);
-
-    /// @notice Emitted when the locking status is changed to locked.
-    /// @dev If a token is minted and the status is locked, this event should be emitted.
-    /// @param tokenId The identifier for a token.
-    event Locked(uint256 tokenId);
-
-    /// @notice Emitted when the locking status is changed to unlocked.
-    /// @dev If a token is minted and the status is unlocked, this event should be emitted.
-    /// @param tokenId The identifier for a token.
-    event Unlocked(uint256 tokenId);
 
     /// @notice Returns the locking status of an Soulbound Token
     /// @dev SBTs assigned to zero address are considered invalid, and queries
@@ -61,30 +52,38 @@ contract SoulboundToken is ERC721, ERC721Enumerable, Ownable {
         return string(baseURI);
     }
 
-    /// @notice Allows you to claim an SBT token and send it to the address 
+    /// @notice Allows you to claim an SBT and send it to the address
     /// @dev must check that the user does not possess the token, 
     /// this function should mark the token at the sender address, send it and lock it, and emit the events
-    function claimToken() external {
-        require(!claimedTokens[msg.sender], "Token already claimed");
+    /// @param to The address user
+    function claimToken(address to) external onlyOwner {
+        require(!claimedTokens[to], "Token already claimed");
 
         // Marks token as claimed
-        claimedTokens[msg.sender] = true;
+        claimedTokens[to] = true;
 
         // Generate token internal
-        uint256 tokenId = generateTokenId(msg.sender);
-        _safeMint(msg.sender, tokenId);
+        uint256 tokenId = generateTokenId(to);
+        _safeMint(to, tokenId);
 
         // Marks token Id requested from wallet
-        balanceOf[tokenId] = msg.sender;
+        balanceOf[tokenId] = to;
 
         // Marks token as blocked
         _locked[tokenId] = true;
-        
+
         // Emits an event to notify that the token has been blocked
         emit Locked(tokenId);
         
         // Emits an event to notify the token claim
-        emit TokenClaimed(msg.sender, tokenId);
+        emit TokenClaimed(to, tokenId);
+    }
+
+    /// @notice Find out if a user has the SBT
+    /// @dev must return true to indicate that the user is registered and has the authentication token
+    function authToken() public view returns (bool) {
+        require(claimedTokens[msg.sender] == false, "You don't have this SBT token");
+        return claimedTokens[msg.sender];
     }
 
     /// @notice Creates a unique identifier from the user's address
@@ -97,28 +96,20 @@ contract SoulboundToken is ERC721, ERC721Enumerable, Ownable {
     /// @notice Allows you to revoke a wallet's SBT 
     /// @dev Must check that the token ID of the SBT belongs to a wallet, 
     /// must remove the SBT from the mapping, must burn the SBT
-    /// @param from address user, tokenId The identifier for an SBT.
-    function recoverTokens(address from, uint256 tokenId) external onlyOwner {
-        require(balanceOf[tokenId] == from, "The wallet doesn't hold this token");
-        delete(balanceOf[tokenId]);
-        _burn(tokenId);
+    /// @param from address user, _tokenId The identifier for an SBT.
+    function recoverTokens(address from, uint256 _tokenId) external onlyOwner {
+        require(balanceOf[_tokenId] == from, "The wallet doesn't hold this token");
+        delete(balanceOf[_tokenId]);
+        _burn(_tokenId);
     }
 
-    /// @notice Burn your SBT
-    /// @dev Must check that the SBT token ID belongs to the sender, Must burn the SBT
-    /// @param tokenId The identifier for an SBT.
-    function burn(uint256 tokenId) public {
-        require(balanceOf[tokenId] == msg.sender, "The wallet doesn't hold this token");
-        _burn(tokenId);
-    }
-
-    modifier onlyTokenOwner(uint256 tokenId) {
-        require(balanceOf[tokenId] == msg.sender, "You don't have this token");
+    modifier onlyTokenOwner(uint256 _tokenId) {
+        require(balanceOf[_tokenId] == msg.sender, "You don't have this token");
         _;
     }
 
-    modifier IsTransferAllowed(uint256 tokenId) {
-        require(!_locked[tokenId]);
+    modifier IsTransferAllowed(uint256 _tokenId) {
+        require(!_locked[_tokenId]);
         _;
     }
 
@@ -169,3 +160,4 @@ contract SoulboundToken is ERC721, ERC721Enumerable, Ownable {
         return _interfaceId == type(IERC5192).interfaceId || super.supportsInterface(_interfaceId);
     }
 }
+
